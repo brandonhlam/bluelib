@@ -6,12 +6,14 @@ import FloatingPoint::*;
 
 
 import "BDPI" function Bit#(32) bdpi_sqrt32(Bit#(32) data);
+import "BDPI" function ActionValue#(Bit#(32)) bdpi_accum(Bit#(32) val,Bit#(32) last,Bit#(32) prev);
 
 typedef 7 MultLatency32;
 typedef 12 AddLatency32;
 typedef 12 SubLatency32;
 typedef 29 DivLatency32;
 typedef 29 SqrtLatency32;
+typedef 23 AccumLatency32;
 
 interface FpFilterImportIfc#(numeric type width);
 	method Action enq(Bit#(width) a);
@@ -24,7 +26,18 @@ interface FpPairImportIfc#(numeric type width);
 	method ActionValue#(Bit#(width)) get;
 endinterface
 
+interface FpAccumImportIfc#(numeric type width);
+	method Action enq(Bit#(width) a,Bit#(1) last);
+	method ActionValue#(Bit#(width)) get;
+endinterface
 
+
+
+interface FpAccumIfc#(numeric type width);
+	method Action enq(Bit#(width) a,Bit#(1) last);
+	method Action deq;
+	method Bit#(width) first;
+endinterface
 
 interface FpFilterIfc#(numeric type width);
 	method Action enq(Bit#(width) a);
@@ -113,6 +126,38 @@ module mkFpSqrtImport32#(Clock aclk, Reset arst) (FpFilterImportIfc#(32));
 	input_clock (aclk) = aclk;
 	method m_axis_result_tdata get enable(m_axis_result_tready) ready(m_axis_result_tvalid) clocked_by(aclk);
 	method enq(s_axis_a_tdata) enable(s_axis_a_tvalid) ready(s_axis_a_tready) clocked_by(aclk);
+  
+	schedule (
+		get, enq
+	) CF (
+		get, enq
+	);
+endmodule
+
+import "BVI" fp_reciprocal32 =
+module mkFpReciprocalImport32#(Clock aclk, Reset arst) (FpFilterImportIfc#(32));
+	default_clock no_clock;
+	default_reset no_reset;
+
+	input_clock (aclk) = aclk;
+	method m_axis_result_tdata get enable(m_axis_result_tready) ready(m_axis_result_tvalid) clocked_by(aclk);
+	method enq(s_axis_a_tdata) enable(s_axis_a_tvalid) ready(s_axis_a_tready) clocked_by(aclk);
+  
+	schedule (
+		get, enq
+	) CF (
+		get, enq
+	);
+endmodule
+
+import "BVI" fp_accum32 =
+module mkFpAccumImport32#(Clock aclk, Reset arst) (FpAccumImportIfc#(32));
+	default_clock no_clock;
+	default_reset no_reset;
+
+	input_clock (aclk) = aclk;
+	method m_axis_result_tdata get enable(m_axis_result_tready) ready(m_axis_result_tvalid) clocked_by(aclk);
+	method enq(s_axis_a_tdata,s_axis_a_tlast) enable(s_axis_a_tvalid) ready(s_axis_a_tready) clocked_by(aclk);
   
 	schedule (
 		get, enq
@@ -362,6 +407,54 @@ module mkFpSqrt32 (FpFilterIfc#(32));
 	latencyQs[0].enq( bdpi_sqrt32(a) );
 `else
 		fp_sqrt.enq(a);
+`endif
+	endmethod
+	method Action deq;
+		outQ.deq;
+	endmethod
+	method Bit#(32) first;
+		return outQ.first;
+	endmethod
+endmodule
+
+module mkFpAccum32 (FpAccumIfc#(32));
+	Clock curClk <- exposeCurrentClock;
+	Reset curRst <- exposeCurrentReset;
+
+	FIFO#(Bit#(32)) outQ <- mkFIFO;
+`ifdef BSIM
+    Reg#(Bit#(32)) rv <- mkReg(0);
+	Vector#(AccumLatency32, FIFO#(Bit#(32))) latencyQs <- replicateM(mkFIFO);
+	for (Integer i = 0; i < valueOf(AccumLatency32)-1; i=i+1 ) begin
+		rule relay;
+			latencyQs[i].deq;
+			latencyQs[i+1].enq(latencyQs[i].first);
+		endrule
+	end
+	rule relayOut;
+		Integer lastIdx = valueOf(AccumLatency32)-1;
+		latencyQs[lastIdx].deq;
+		outQ.enq(latencyQs[lastIdx].first);
+	endrule
+`else
+	FpAccumImportIfc#(32) fp_accum <- mkFpAccumImport32(curClk, curRst);
+	rule getOut;
+		let v <- fp_accum.get;
+		outQ.enq(v);
+	endrule
+`endif
+
+method Action enq(Bit#(32) a,Bit#(1) last);
+`ifdef BSIM
+    Bit#(32) temp = fpadd(a,rv);
+    if(last == 1'b1) begin
+	    latencyQs[0].enq(temp);
+        rv <= 0;
+    end else begin
+        rv <= temp;
+    end
+`else
+		fp_accum.enq(a);
 `endif
 	endmethod
 	method Action deq;
