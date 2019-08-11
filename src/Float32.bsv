@@ -6,6 +6,7 @@ import FloatingPoint::*;
 
 
 import "BDPI" function Bit#(32) bdpi_sqrt32(Bit#(32) data);
+import "BDPI" function Bit#(32) bdpi_invsqrt32(Bit#(32) data);
 import "BDPI" function ActionValue#(Bit#(32)) bdpi_accum(Bit#(32) val,Bit#(32) last,Bit#(32) prev);
 
 typedef 7 MultLatency32;
@@ -14,6 +15,7 @@ typedef 12 SubLatency32;
 typedef 29 DivLatency32;
 typedef 29 SqrtLatency32;
 typedef 23 AccumLatency32;
+typedef 33 InvSqrtLatency32;
 
 interface FpFilterImportIfc#(numeric type width);
 	method Action enq(Bit#(width) a);
@@ -134,8 +136,8 @@ module mkFpSqrtImport32#(Clock aclk, Reset arst) (FpFilterImportIfc#(32));
 	);
 endmodule
 
-import "BVI" fp_reciprocal32 =
-module mkFpReciprocalImport32#(Clock aclk, Reset arst) (FpFilterImportIfc#(32));
+import "BVI" fp_invSqrt32 =
+module mkFpInvSqrtImport32#(Clock aclk, Reset arst) (FpFilterImportIfc#(32));
 	default_clock no_clock;
 	default_reset no_reset;
 
@@ -407,6 +409,47 @@ module mkFpSqrt32 (FpFilterIfc#(32));
 	latencyQs[0].enq( bdpi_sqrt32(a) );
 `else
 		fp_sqrt.enq(a);
+`endif
+	endmethod
+	method Action deq;
+		outQ.deq;
+	endmethod
+	method Bit#(32) first;
+		return outQ.first;
+	endmethod
+endmodule
+
+module mkFpInvSqrt32 (FpFilterIfc#(32));
+	Clock curClk <- exposeCurrentClock;
+	Reset curRst <- exposeCurrentReset;
+
+	FIFO#(Bit#(32)) outQ <- mkFIFO;
+`ifdef BSIM
+	Vector#(InvSqrtLatency32, FIFO#(Bit#(32))) latencyQs <- replicateM(mkFIFO);
+	for (Integer i = 0; i < valueOf(InvSqrtLatency32)-1; i=i+1 ) begin
+		rule relay;
+			latencyQs[i].deq;
+			latencyQs[i+1].enq(latencyQs[i].first);
+		endrule
+	end
+	rule relayOut;
+		Integer lastIdx = valueOf(InvSqrtLatency32)-1;
+		latencyQs[lastIdx].deq;
+		outQ.enq(latencyQs[lastIdx].first);
+	endrule
+`else
+	FpFilterImportIfc#(32) fp_invsqrt <- mkFpInvSqrtImport32(curClk, curRst);
+	rule getOut;
+		let v <- fp_invsqrt.get;
+		outQ.enq(v);
+	endrule
+`endif
+
+	method Action enq(Bit#(32) a);
+`ifdef BSIM
+	latencyQs[0].enq( bdpi_invsqrt32(a) );
+`else
+		fp_invsqrt.enq(a);
 `endif
 	endmethod
 	method Action deq;

@@ -68,7 +68,7 @@ extern "C" uint32_t bdpi_atan(uint32_t x, uint32_t y) {
 	return float_to_fixed(fatan, 16, 3);
 }
 
-extern "C" uint32_t bdpi_reciprocalsqrt32(uint32_t data) {
+extern "C" uint32_t bdpi_invsqrt32(uint32_t data) {
 	float r = 1/sqrt(*(float*)&data);
 	return *(uint32_t*)&r;
 }
