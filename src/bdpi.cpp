@@ -77,7 +77,6 @@ extern "C" uint32_t bdpi_accum(uint32_t val, uint32_t last, uint32_t prev){
     int y = last;
     float x = *(float*)&val;
     float rv = *(float*)&prev;
-    cnt++;
     rv += x;
     return *(uint32_t*)&rv;
 }
