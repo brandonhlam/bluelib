@@ -7,8 +7,8 @@ import FloatingPoint::*;
 
 import "BDPI" function Bit#(32) bdpi_sqrt32(Bit#(32) data);
 import "BDPI" function Bit#(32) bdpi_invsqrt32(Bit#(32) data);
-import "BDPI" fixed_to_float function Bit#(32) bdpi_fx2fp(Bit#(32) data, Bit#(32) bits, Bit#(32) intbits);
-import "BDPI" float_to_fixed = function Bit#(32) bdpi_fp2fx(Bit#(32) data, Bit#(32) bits, Bit#(32) intbits);
+import "BDPI" bdpi_fixed_to_float = function Bit#(32) bdpi_fx2fp(Bit#(32) data, Bit#(32) bits, Bit#(32) intbits);
+import "BDPI" bdpi_float_to_fixed = function Bit#(32) bdpi_fp2fx(Bit#(32) data, Bit#(32) bits, Bit#(32) intbits);
 import "BDPI" function ActionValue#(Bit#(32)) bdpi_accum(Bit#(32) val,Bit#(32) last,Bit#(32) prev);
 
 typedef 7 MultLatency32;
@@ -33,13 +33,11 @@ endinterface
 
 interface FpConvertImportIfc#(numeric type inWidth, numeric type outWidth);
 	method Action enq(Bit#(inWidth) a);
-	method Action deq;
-	method Bit#(outWidth) first;
+	method ActionValue#(Bit#(outWidth)) get;
 endinterface
 
 interface FpAccumImportIfc#(numeric type width);
-	method Action enq(Bit#(width) a);
-    method Action isLast(Bit#(1) last);
+	method Action enq(Bit#(width) a, Bit#(1) last);
 	method ActionValue#(Bit#(width)) get;
 endinterface
 
@@ -175,13 +173,13 @@ module mkFpAccumImport32#(Clock aclk, Reset arst) (FpAccumImportIfc#(32));
 
 	input_clock (aclk) = aclk;
 	method m_axis_result_tdata get enable(m_axis_result_tready) ready(m_axis_result_tvalid) clocked_by(aclk);
-	method enq(s_axis_a_tdata) enable(s_axis_a_tvalid) ready(s_axis_a_tready) clocked_by(aclk);
-	method isLast(s_axis_a_tlast) enable(s_axis_a_tvalid) ready(s_axis_a_tready) clocked_by(aclk);
+	method enq(s_axis_a_tdata,s_axis_a_tlast) enable(s_axis_a_tvalid) ready(s_axis_a_tready) clocked_by(aclk);
+	//method isLast(s_axis_a_tlast) enable(s_axis_a_tvalid) ready(s_axis_a_tready) clocked_by(aclk);
   
 	schedule (
-		get, enq, isLast
+		get, enq 
 	) CF (
-		get, enq, isLast
+		get, enq
 	);
 endmodule
 
@@ -556,7 +554,7 @@ method Action enq(Bit#(32) a,Bit#(1) last);
         rv <= temp;
     end
 `else
-		fp_accum.enq(a);
+		fp_accum.enq(a,last);
 `endif
 	endmethod
 	method Action deq;
@@ -595,7 +593,7 @@ module mkFp32ToFx16 (FpConvertIfc#(32,16));
 
 	method Action enq(Bit#(32) a);
 `ifdef BSIM
-	latencyQs[0].enq( truncate(bdpi_fp2fx(a),16,2) );
+    latencyQs[0].enq(truncate(bdpi_fp2fx(a,16,2)) );
 `else
 		fp2fx.enq(a);
 `endif
@@ -636,7 +634,7 @@ module mkFx16ToFp32 (FpConvertIfc#(16,32));
 
 	method Action enq(Bit#(16) a);
 `ifdef BSIM
-	latencyQs[0].enq( bdpi_fx2fp(zeroExtend(a),16,3) );
+	latencyQs[0].enq( bdpi_fx2fp(zeroExtend(a),16,2) );
 `else
 		fp2fx.enq(a);
 `endif
