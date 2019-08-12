@@ -595,7 +595,7 @@ module mkFp32ToFx16 (FpConvertIfc#(32,16));
 
 	method Action enq(Bit#(32) a);
 `ifdef BSIM
-	latencyQs[0].enq( truncate(bdpi_fp2fx(a)) );
+	latencyQs[0].enq( truncate(bdpi_fp2fx(a),16,2) );
 `else
 		fp2fx.enq(a);
 `endif
@@ -634,9 +634,9 @@ module mkFx16ToFp32 (FpConvertIfc#(16,32));
 	endrule
 `endif
 
-	method Action enq(Bit#(32) a);
+	method Action enq(Bit#(16) a);
 `ifdef BSIM
-	latencyQs[0].enq( bdpi_fx2fp(zeroExtend(a)) );
+	latencyQs[0].enq( bdpi_fx2fp(zeroExtend(a),16,3) );
 `else
 		fp2fx.enq(a);
 `endif
@@ -644,7 +644,7 @@ module mkFx16ToFp32 (FpConvertIfc#(16,32));
 	method Action deq;
 		outQ.deq;
 	endmethod
-	method Bit#(16) first;
+	method Bit#(32) first;
 		return outQ.first;
 	endmethod
 endmodule
