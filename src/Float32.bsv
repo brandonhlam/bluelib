@@ -538,7 +538,17 @@ module mkFpAccum32 (FpAccumIfc#(32));
 
 method Action enq(Bit#(32) a,Bit#(1) last);
 `ifdef BSIM
-    Bit#(32) temp = fpadd(a,rv);
+    let b = rv;
+	Bool asign = a[31] == 1;
+	Bool bsign = b[31] == 1;
+	Bit#(8) ae = truncate(a>>23);
+	Bit#(8) be = truncate(b>>23);
+	Bit#(23) as = truncate(a);
+	Bit#(23) bs = truncate(b);
+	Float fa = Float{sign: asign, exp: ae, sfd: as};
+	Float fb = Float{sign: bsign, exp: be, sfd: bs};
+	Float fm = fa + fb;
+    Bit#(32) temp = {fm.sign?1:0,fm.exp,fm.sfd};
     if(last == 1'b1) begin
 	    latencyQs[0].enq(temp);
         rv <= 0;
