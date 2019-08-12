@@ -7,9 +7,12 @@ import FloatingPoint::*;
 
 import "BDPI" function Bit#(32) bdpi_sqrt32(Bit#(32) data);
 import "BDPI" function Bit#(32) bdpi_invsqrt32(Bit#(32) data);
+import "BDPI" fixed_to_float function Bit#(32) bdpi_fx2fp(Bit#(32) data, Bit#(32) bits, Bit#(32) intbits);
+import "BDPI" float_to_fixed = function Bit#(32) bdpi_fp2fx(Bit#(32) data, Bit#(32) bits, Bit#(32) intbits);
 import "BDPI" function ActionValue#(Bit#(32)) bdpi_accum(Bit#(32) val,Bit#(32) last,Bit#(32) prev);
 
 typedef 7 MultLatency32;
+typedef 7 ConvertLatency;
 typedef 12 AddLatency32;
 typedef 12 SubLatency32;
 typedef 29 DivLatency32;
@@ -28,12 +31,25 @@ interface FpPairImportIfc#(numeric type width);
 	method ActionValue#(Bit#(width)) get;
 endinterface
 
+interface FpConvertImportIfc#(numeric type inWidth, numeric type outWidth);
+	method Action enq(Bit#(inWidth) a);
+	method Action deq;
+	method Bit#(outWidth) first;
+endinterface
+
 interface FpAccumImportIfc#(numeric type width);
-	method Action enq(Bit#(width) a,Bit#(1) last);
+	method Action enq(Bit#(width) a);
+    method Action isLast(Bit#(1) last);
 	method ActionValue#(Bit#(width)) get;
 endinterface
 
 
+
+interface FpConvertIfc#(numeric type inWidth, numeric type outWidth);
+	method Action enq(Bit#(inWidth) a);
+	method Action deq;
+	method Bit#(outWidth) first;
+endinterface
 
 interface FpAccumIfc#(numeric type width);
 	method Action enq(Bit#(width) a,Bit#(1) last);
@@ -159,7 +175,40 @@ module mkFpAccumImport32#(Clock aclk, Reset arst) (FpAccumImportIfc#(32));
 
 	input_clock (aclk) = aclk;
 	method m_axis_result_tdata get enable(m_axis_result_tready) ready(m_axis_result_tvalid) clocked_by(aclk);
-	method enq(s_axis_a_tdata,s_axis_a_tlast) enable(s_axis_a_tvalid) ready(s_axis_a_tready) clocked_by(aclk);
+	method enq(s_axis_a_tdata) enable(s_axis_a_tvalid) ready(s_axis_a_tready) clocked_by(aclk);
+	method isLast(s_axis_a_tlast) enable(s_axis_a_tvalid) ready(s_axis_a_tready) clocked_by(aclk);
+  
+	schedule (
+		get, enq, isLast
+	) CF (
+		get, enq, isLast
+	);
+endmodule
+
+import "BVI" fp32_to_fx16 =
+module mkFp32ToFx16Import32#(Clock aclk, Reset arst) (FpConvertImportIfc#(32,16));
+	default_clock no_clock;
+	default_reset no_reset;
+
+	input_clock (aclk) = aclk;
+	method m_axis_result_tdata get enable(m_axis_result_tready) ready(m_axis_result_tvalid) clocked_by(aclk);
+	method enq(s_axis_a_tdata) enable(s_axis_a_tvalid) ready(s_axis_a_tready) clocked_by(aclk);
+  
+	schedule (
+		get, enq
+	) CF (
+		get, enq
+	);
+endmodule
+
+import "BVI" fx16_to_fp32 =
+module mkFx16ToFp32Import32#(Clock aclk, Reset arst) (FpConvertImportIfc#(16,32));
+	default_clock no_clock;
+	default_reset no_reset;
+
+	input_clock (aclk) = aclk;
+	method m_axis_result_tdata get enable(m_axis_result_tready) ready(m_axis_result_tvalid) clocked_by(aclk);
+	method enq(s_axis_a_tdata) enable(s_axis_a_tvalid) ready(s_axis_a_tready) clocked_by(aclk);
   
 	schedule (
 		get, enq
@@ -504,6 +553,88 @@ method Action enq(Bit#(32) a,Bit#(1) last);
 		outQ.deq;
 	endmethod
 	method Bit#(32) first;
+		return outQ.first;
+	endmethod
+endmodule
+
+module mkFp32ToFx16 (FpConvertIfc#(32,16));
+	Clock curClk <- exposeCurrentClock;
+	Reset curRst <- exposeCurrentReset;
+
+	FIFO#(Bit#(16)) outQ <- mkFIFO;
+`ifdef BSIM
+	Vector#(ConvertLatency, FIFO#(Bit#(16))) latencyQs <- replicateM(mkFIFO);
+	for (Integer i = 0; i < valueOf(ConvertLatency)-1; i=i+1 ) begin
+		rule relay;
+			latencyQs[i].deq;
+			latencyQs[i+1].enq(latencyQs[i].first);
+		endrule
+	end
+	rule relayOut;
+		Integer lastIdx = valueOf(ConvertLatency)-1;
+		latencyQs[lastIdx].deq;
+		outQ.enq(latencyQs[lastIdx].first);
+	endrule
+`else
+	FpConvertImportIfc#(32,16) fp2fx <- mkFp32ToFx16Import32(curClk, curRst);
+	rule getOut;
+		let v <- fp2fx.get;
+		outQ.enq(v);
+	endrule
+`endif
+
+	method Action enq(Bit#(32) a);
+`ifdef BSIM
+	latencyQs[0].enq( truncate(bdpi_fp2fx(a)) );
+`else
+		fp2fx.enq(a);
+`endif
+	endmethod
+	method Action deq;
+		outQ.deq;
+	endmethod
+	method Bit#(16) first;
+		return outQ.first;
+	endmethod
+endmodule
+
+module mkFx16ToFp32 (FpConvertIfc#(16,32));
+	Clock curClk <- exposeCurrentClock;
+	Reset curRst <- exposeCurrentReset;
+
+	FIFO#(Bit#(32)) outQ <- mkFIFO;
+`ifdef BSIM
+	Vector#(ConvertLatency, FIFO#(Bit#(32))) latencyQs <- replicateM(mkFIFO);
+	for (Integer i = 0; i < valueOf(ConvertLatency)-1; i=i+1 ) begin
+		rule relay;
+			latencyQs[i].deq;
+			latencyQs[i+1].enq(latencyQs[i].first);
+		endrule
+	end
+	rule relayOut;
+		Integer lastIdx = valueOf(ConvertLatency)-1;
+		latencyQs[lastIdx].deq;
+		outQ.enq(latencyQs[lastIdx].first);
+	endrule
+`else
+	FpConvertImportIfc#(16,32) fx2fp <- mkFx16ToFp32Import32(curClk, curRst);
+	rule getOut;
+		let v <- fx2fp.get;
+		outQ.enq(v);
+	endrule
+`endif
+
+	method Action enq(Bit#(32) a);
+`ifdef BSIM
+	latencyQs[0].enq( bdpi_fx2fp(zeroExtend(a)) );
+`else
+		fp2fx.enq(a);
+`endif
+	endmethod
+	method Action deq;
+		outQ.deq;
+	endmethod
+	method Bit#(16) first;
 		return outQ.first;
 	endmethod
 endmodule
