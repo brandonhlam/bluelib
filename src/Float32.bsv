@@ -150,7 +150,7 @@ module mkFpSqrtImport32#(Clock aclk, Reset arst) (FpFilterImportIfc#(32));
 	);
 endmodule
 
-import "BVI" fp_invSqrt32 =
+import "BVI" fp_invsqrt32 =
 module mkFpInvSqrtImport32#(Clock aclk, Reset arst) (FpFilterImportIfc#(32));
 	default_clock no_clock;
 	default_reset no_reset;
@@ -636,7 +636,7 @@ module mkFx16ToFp32 (FpConvertIfc#(16,32));
 `ifdef BSIM
 	latencyQs[0].enq( bdpi_fx2fp(zeroExtend(a),16,2) );
 `else
-		fp2fx.enq(a);
+		fx2fp.enq(a);
 `endif
 	endmethod
 	method Action deq;
