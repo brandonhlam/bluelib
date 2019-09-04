@@ -1,5 +1,7 @@
 #!/bin/bash
 rm -rf kc705
+parent_path=$( cd "$(dirname "${BASH_SOURCE[0]}")" ; pwd -P )
+cd "$parent_path"
 
 vivado -mode batch -source synth-fp-kc705.tcl -nolog -nojournal
 vivado -mode batch -source synth-cordic-kc705.tcl -nolog -nojournal
